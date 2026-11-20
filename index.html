@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Proof Duel</title>
+<meta name="description" content="Our daily challenge: log activities with photo proof and race for the weekly crown.">
+<meta name="theme-color" content="#fff7f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#170f15" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Proof Duel">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9h-5v-6h-6v6H4z"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 20h8"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+</svg>
+
+<div class="wrap">
+  <header>
+    <div class="hello">
+      <h1 id="hello">Proof Duel</h1>
+      <p id="pep">Snap it, log it, win the week.</p>
+    </div>
+    <button class="me-btn" id="meBtn" hidden aria-label="Edit your profile"></button>
+  </header>
+
+  <div id="notice" hidden class="notice"></div>
+
+  <!-- TODAY -->
+  <section id="pane-today" style="display:flex;flex-direction:column;gap:22px">
+    <div class="streaks" id="streaks" hidden></div>
+    <div class="card race" aria-live="polite">
+      <div class="race-head"><h2>This week</h2><small id="daysLeft"></small></div>
+      <div id="lanes" style="display:flex;flex-direction:column;gap:16px"><div class="empty">Loading the race…</div></div>
+      <div class="status" id="status" hidden></div>
+    </div>
+
+    <div class="days" id="days"></div>
+
+    <div class="section-head"><h2 id="dayTitle">Today</h2><span id="dayTotal"></span></div>
+    <div class="card list" id="acts"><div class="empty">Loading activities…</div></div>
+
+    <div class="section-head"><h2>Latest proofs</h2><a href="#week" class="muted" style="font-weight:600;font-size:.88rem">See all</a></div>
+    <div class="feed" id="feed"><div class="card empty" style="flex:1">Photos from both of you show up here.</div></div>
+  </section>
+
+  <!-- RANKING -->
+  <section id="pane-week" hidden style="display:flex;flex-direction:column;gap:22px">
+    <div class="weeknav">
+      <button class="nav-btn" id="prevWeek" aria-label="Previous week"><svg class="icon"><use href="#i-left"/></svg></button>
+      <span class="label" id="weekLabel">This week</span>
+      <button class="nav-btn" id="nextWeek" aria-label="Next week"><svg class="icon"><use href="#i-right"/></svg></button>
+    </div>
+    <div class="podium" id="podium"></div>
+    <div class="section-head"><h2>Proof photos</h2><span id="proofCount"></span></div>
+    <div class="wall" id="wall"></div>
+    <div class="section-head"><h2>Past winners</h2></div>
+    <div class="card hist" id="history"></div>
+  </section>
+
+  <!-- ACTIVITIES -->
+  <section id="pane-activities" hidden style="display:flex;flex-direction:column;gap:16px">
+    <p class="muted" style="margin:0">Shared by both of you. Changing points doesn't affect past logs.</p>
+    <div class="card" id="actList" style="overflow:hidden"></div>
+    <form class="card add" id="addForm">
+      <input class="field" type="text" id="newName" placeholder="New activity" maxlength="60" required>
+      <input class="field" type="number" id="newPts" placeholder="Pts" min="1" max="1000" required>
+      <label class="chk"><input type="checkbox" id="newReq"> Required every day</label>
+      <button class="btn primary" type="submit">Add</button>
+    </form>
+  </section>
+</div>
+
+<div class="tabbar"><nav>
+  <a href="#today" id="tab-today"><svg class="icon lg"><use href="#i-home"/></svg>Today</a>
+  <a href="#week" id="tab-week"><svg class="icon lg"><use href="#i-trophy"/></svg>Ranking</a>
+  <a href="#activities" id="tab-activities"><svg class="icon lg"><use href="#i-list"/></svg>Activities</a>
+</nav></div>
+
+<input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
+<canvas id="confetti" aria-hidden="true"></canvas>
+
+<dialog id="join">
+  <form id="joinForm">
+    <div class="join-top"><span class="av lg" id="joinAv"></span><div><h2 id="joinTitle">Create your player</h2><span class="muted" style="font-size:.88rem">Just a name, that's it.</span></div></div>
+    <div id="pickExisting" hidden style="display:flex;flex-direction:column;gap:10px">
+      <span class="lbl">Already playing? Tap your name</span>
+      <div class="picks" id="existingPicks"></div>
+      <span class="lbl" style="margin-top:6px">Or create a new player</span>
+    </div>
+    <span class="lbl">Name</span>
+    <input class="field" id="joinName" maxlength="24" required placeholder="e.g. Maya" autocomplete="nickname">
+    <span class="lbl">Sticker</span>
+    <div class="picks" id="emojiPicks"></div>
+    <span class="lbl">Color</span>
+    <div class="picks" id="colorPicks"></div>
+    <button class="btn primary" type="submit" id="joinBtn" style="padding:12px">Let's go</button>
+    <button class="btn link" type="button" id="joinCancel" hidden>Cancel</button>
+    <button class="btn link" type="button" id="joinSwitch" hidden>Not you? Switch player</button>
+  </form>
+</dialog>
+<dialog id="lightbox"><img id="lbImg" alt="">
+  <div class="nav"><button class="nav-btn" id="lbPrev" aria-label="Previous photo"><svg class="icon"><use href="#i-left"/></svg></button><span id="lbCap"></span><button class="nav-btn" id="lbNext" aria-label="Next photo"><svg class="icon"><use href="#i-right"/></svg></button></div>
+  <div class="cap"><button class="btn link" id="lbDel" hidden>Delete photo</button><button class="btn" id="lbClose">Close</button></div>
+</dialog>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
