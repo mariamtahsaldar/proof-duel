@@ -97,21 +97,24 @@
 
 <dialog id="join">
   <form id="joinForm">
-    <div class="join-top"><span class="av lg" id="joinAv"></span><div><h2 id="joinTitle">Create your player</h2><span class="muted" style="font-size:.88rem">Just a name, that's it.</span></div></div>
-    <div id="pickExisting" hidden style="display:flex;flex-direction:column;gap:10px">
-      <span class="lbl">Already playing? Tap your name</span>
-      <div class="picks" id="existingPicks"></div>
-      <span class="lbl" style="margin-top:6px">Or create a new player</span>
-    </div>
+    <div class="join-top"><span class="av lg" id="joinAv"></span><div><h2 id="joinTitle">Create your account</h2><span class="muted" id="joinSub" style="font-size:.88rem">Your name and a password, that's it.</span></div></div>
     <span class="lbl">Name</span>
-    <input class="field" id="joinName" maxlength="24" required placeholder="e.g. Maya" autocomplete="nickname">
-    <span class="lbl">Sticker</span>
-    <div class="picks" id="emojiPicks"></div>
-    <span class="lbl">Color</span>
-    <div class="picks" id="colorPicks"></div>
-    <button class="btn primary" type="submit" id="joinBtn" style="padding:12px">Let's go</button>
+    <input class="field" id="joinName" maxlength="24" required placeholder="e.g. Maya" autocomplete="username" autocapitalize="words">
+    <div id="pwWrap" style="display:flex;flex-direction:column;gap:16px">
+      <span class="lbl">Password</span>
+      <input class="field" id="joinPw" type="password" minlength="8" maxlength="72" placeholder="At least 8 characters" autocomplete="new-password">
+    </div>
+    <div id="looksWrap" style="display:flex;flex-direction:column;gap:16px">
+      <span class="lbl">Sticker</span>
+      <div class="picks" id="emojiPicks"></div>
+      <span class="lbl">Color</span>
+      <div class="picks" id="colorPicks"></div>
+    </div>
+    <p class="notice err" id="joinErr" hidden style="margin:0"></p>
+    <button class="btn primary" type="submit" id="joinBtn" style="padding:12px">Create account</button>
+    <button class="btn link" type="button" id="joinToggle">Already have an account? Sign in</button>
     <button class="btn link" type="button" id="joinCancel" hidden>Cancel</button>
-    <button class="btn link" type="button" id="joinSwitch" hidden>Not you? Switch player</button>
+    <button class="btn link" type="button" id="signOut" hidden>Sign out</button>
   </form>
 </dialog>
 <dialog id="lightbox"><img id="lbImg" alt="">

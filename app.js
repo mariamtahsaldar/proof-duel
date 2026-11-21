@@ -4,10 +4,7 @@
   const EMOJIS = ['🌸','🦋','🍓','💖','🌈','✨','🍒','🐱','🌷','🦄','🍑','🌙'];
   const COLORS = ['#e6407e','#9b6bdf','#ff8a65','#2fa57d','#3b82c4','#d4a017'];
   const CFG = window.PROOF_DUEL_CONFIG || {};
-  const ME_KEY = 'proofduel.me';
-  const store = { get(){ try{ return localStorage.getItem(ME_KEY); }catch(e){ return null; } },
-                  set(v){ try{ v ? localStorage.setItem(ME_KEY,v) : localStorage.removeItem(ME_KEY); }catch(e){} } };
-  const S = { db:null, ready:false, me:store.get(), acts:[], people:[], peopleLoaded:false, logs:{},
+  const S = { db:null, ready:false, me:null, urls:{}, acts:[], people:[], peopleLoaded:false, logs:{},
               weekOffset:0, day:null, loaded:false, pendingAct:null, busy:null, logSubs:{} };
 
   // ---- dates (local time, weeks start Monday) ----
@@ -35,7 +32,9 @@
   const icon = (id,cls='icon') => { const s=document.createElementNS('http://www.w3.org/2000/svg','svg'); s.setAttribute('class',cls); const u=document.createElementNS('http://www.w3.org/2000/svg','use'); u.setAttribute('href','#'+id); s.append(u); return s; };
   let toastT; function toast(msg){ const t=$('toast'); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true,2600); }
   function notice(msg, err){ const n=$('notice'); n.textContent=msg||''; n.hidden=!msg; n.classList.toggle('err',!!err); }
-  const blob = path => `${CFG.supabaseUrl}/storage/v1/object/public/proofs/${path}`;
+  // photos are private: each one is shown through a short-lived signed link
+  const PIXEL='data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+  const blob = path => S.urls[path]?.url || PIXEL;
   const person = id => S.people.find(p=>p.id===id) || {};
   const name = id => person(id).displayName || (id===S.me ? 'You' : 'Your friend');
   const emoji = id => EMOJIS.includes(person(id).emoji) ? person(id).emoji : '🌸';
@@ -253,44 +252,80 @@
     }
   }
 
-  // ---- join / profile ----
-  const J={emoji:EMOJIS[0], color:COLORS[0]};
+  // ---- accounts / profile ----
+  const J={emoji:EMOJIS[0], color:COLORS[0], mode:'signup'};
   function drawJoin(){
     $('emojiPicks').replaceChildren(...EMOJIS.map(x=>el('button',{type:'button',class:'pick','aria-pressed':String(x===J.emoji),'aria-label':'Sticker '+x,text:x,onclick:()=>{J.emoji=x;drawJoin();}})));
     $('colorPicks').replaceChildren(...COLORS.map(x=>el('button',{type:'button',class:'swatch','aria-pressed':String(x===J.color),'aria-label':'Color',style:`background:${x}`,onclick:()=>{J.color=x;drawJoin();}})));
-    const a=$('joinAv'); a.textContent=J.emoji; a.style.background=`color-mix(in srgb, ${J.color} 20%, transparent)`;
+    const a=$('joinAv'); a.textContent=J.mode==='signin'?'👋':J.emoji; a.style.background=`color-mix(in srgb, ${J.color} 20%, transparent)`;
   }
-  function openJoin(edit){
+  // mode: 'signup' | 'signin' | 'finish' (signed in, profile missing) | 'edit'
+  function openJoin(mode){
+    J.mode=mode;
     const p=person(S.me);
-    $('joinName').value = p.displayName || '';
-    J.emoji = EMOJIS.includes(p.emoji)?p.emoji:EMOJIS[hash(S.me||'x')%EMOJIS.length];
-    J.color = COLORS.includes(p.color)?p.color:COLORS[0];
-    $('joinTitle').textContent = edit?'Your profile':'Create your player';
-    $('joinBtn').textContent = edit?'Save':'Let’s go';
-    $('joinCancel').hidden = !edit;
-    $('joinSwitch').hidden = !edit;
-    const others=players().filter(id=>id!==S.me);
-    $('pickExisting').hidden = edit || !others.length;
-    $('existingPicks').replaceChildren(...others.map(id=>el('button',{type:'button',class:'btn',onclick:()=>{ S.me=id; store.set(id); $('join').close(); toast(`Welcome back, ${name(id)}!`); render(); }}, av(id,'av sm'), ' ', name(id))));
+    if(mode==='edit'){ $('joinName').value=p.displayName||''; J.emoji=EMOJIS.includes(p.emoji)?p.emoji:EMOJIS[0]; J.color=COLORS.includes(p.color)?p.color:COLORS[0]; }
+    else if(mode!=='finish') $('joinPw').value='';
+    const T={signup:['Create your account','Your name and a password, that’s it.','Create account'],
+             signin:['Welcome back','Sign in with your name and password.','Sign in'],
+             finish:['Finish your profile','Pick your sticker and color.','Let’s go'],
+             edit:['Your profile','Change your sticker or color.','Save']}[mode];
+    $('joinTitle').textContent=T[0]; $('joinSub').textContent=T[1]; $('joinBtn').textContent=T[2];
+    $('joinName').readOnly = mode==='edit';
+    $('pwWrap').hidden = mode==='finish' || mode==='edit';
+    $('joinPw').required = !$('pwWrap').hidden;
+    $('joinPw').autocomplete = mode==='signin' ? 'current-password' : 'new-password';
+    $('looksWrap').hidden = mode==='signin';
+    $('joinToggle').hidden = !(mode==='signup'||mode==='signin');
+    $('joinToggle').textContent = mode==='signup' ? 'Already have an account? Sign in' : 'New here? Create an account';
+    $('joinCancel').hidden = mode!=='edit';
+    $('signOut').hidden = !(mode==='edit'||mode==='finish');
+    $('joinErr').hidden=true;
     drawJoin(); if(!$('join').open) $('join').showModal();
   }
+  function joinErr(msg){ $('joinErr').textContent=msg; $('joinErr').hidden=false; }
+  $('joinToggle').onclick=()=>openJoin(J.mode==='signup'?'signin':'signup');
   $('joinCancel').onclick=()=>$('join').close();
-  $('joinSwitch').onclick=()=>{ S.me=null; store.set(null); render(); openJoin(false); };
-  $('join').addEventListener('cancel',e=>{ if(!person(S.me).displayName) e.preventDefault(); });
-  $('meBtn').onclick=()=>openJoin(true);
+  $('signOut').onclick=async()=>{ await S.db.auth.signOut().catch(()=>{}); $('join').close(); };
+  $('join').addEventListener('cancel',e=>{ if(J.mode!=='edit') e.preventDefault(); });
+  $('meBtn').onclick=()=>openJoin('edit');
+  // Names sign you in, so each name maps to a private login address that never receives mail.
+  async function loginFor(nm){
+    const bytes=new TextEncoder().encode(nm.trim().toLowerCase().normalize('NFC'));
+    const h=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
+    return `u${[...h.slice(0,16)].map(b=>b.toString(16).padStart(2,'0')).join('')}@players.proofduel.app`;
+  }
   $('joinForm').addEventListener('submit', async e=>{
     e.preventDefault();
-    const nm=$('joinName').value.trim().slice(0,24); if(!nm) return;
-    const existing=person(S.me), first=!existing.displayName;
-    $('joinBtn').disabled=true;
+    const nm=$('joinName').value.trim().slice(0,24), pw=$('joinPw').value; if(!nm) return;
+    $('joinErr').hidden=true; $('joinBtn').disabled=true; S.joining = J.mode==='signup';
     try{
-      if(first){ const id=await api.createPlayer({name:nm, emoji:J.emoji, color:J.color}); S.me=id; store.set(id); }
-      else await api.updatePlayer(S.me,{name:nm, emoji:J.emoji, color:J.color});
+      if(J.mode==='edit'){
+        await api.updatePlayer(S.me,{emoji:J.emoji, color:J.color}); await api.loadAll();
+        $('join').close(); toast('Profile saved'); return;
+      }
+      if(J.mode==='signin'){
+        const r=await S.db.auth.signInWithPassword({email:await loginFor(nm), password:pw});
+        if(r.error){ joinErr(r.error.status===400 ? 'That name and password don’t match.' : 'Couldn’t sign in. Check your connection and try again.'); return; }
+        $('join').close(); return;   // onAuthStateChange loads everything
+      }
+      if(J.mode==='signup'){
+        if(pw.length<8){ joinErr('Use a password with at least 8 characters.'); return; }
+        const r=await S.db.auth.signUp({email:await loginFor(nm), password:pw});
+        if(r.error){ joinErr(/registered|exists/i.test(r.error.message) ? 'That name already has an account. Tap “Sign in” below.' : /password/i.test(r.error.message) ? r.error.message : 'Couldn’t create the account. Try again.'); return; }
+        if(!r.data.session){ joinErr('Account created, but email confirmation is still turned on in Supabase. Turn off “Confirm email”, then sign in.'); return; }
+        S.me=r.data.session.user.id;
+      }
+      // signup or finish: create the player profile
+      await api.createPlayer({id:S.me, name:nm, emoji:J.emoji, color:J.color});
       await api.loadAll();
-      $('join').close();
-      if(first){ toast(`Welcome, ${nm}! ${J.emoji}`); confetti(); } else toast('Profile saved');
-    }catch(x){ x?.code==='23505' ? toast('That name is taken. If it’s you, tap your name above.') : err(x); }
-    finally{ $('joinBtn').disabled=false; }
+      $('join').close(); toast(`Welcome, ${nm}! ${J.emoji}`); confetti();
+    }catch(x){
+      console.warn(x);
+      if(/two players/i.test(x?.message||'')){ joinErr('This challenge already has its two players.'); await S.db.auth.signOut().catch(()=>{}); }
+      else if(x?.code==='23505') joinErr('That name is already taken.');
+      else joinErr('Something went wrong. Check your connection and try again.');
+    }
+    finally{ $('joinBtn').disabled=false; S.joining=false; }
   });
 
   // ---- photo gallery ----
@@ -416,11 +451,20 @@
       S.logs={};
       for(const r of l.data) (S.logs[r.player_id] ??= []).push({id:r.id, activityId:r.activity_id, activityName:r.activity_name, points:r.points, date:r.date, photos:r.photos||[], createdAt:Date.parse(r.created_at)});
       S.loaded=true; S.peopleLoaded=true; S.ready=true;
-      if(S.me && !S.people.some(x=>x.id===S.me)){ S.me=null; store.set(null); }
+      await api.signPhotos();
       rerender();
     },
     async q(p){ const r=await p; if(r.error) throw r.error; return r.data; },
-    async createPlayer(v){ const d=await api.q(S.db.from('players').insert(v).select('id').single()); return d.id; },
+    async signPhotos(){
+      const now=Date.now();
+      const need=[...new Set(Object.values(S.logs).flat().flatMap(l=>pics(l)))].filter(p=>!S.urls[p] || S.urls[p].exp<now+5*60e3);
+      for(let i=0;i<need.length;i+=100){
+        const r=await S.db.storage.from('proofs').createSignedUrls(need.slice(i,i+100), 3600);
+        if(r.error) { console.warn(r.error); continue; }
+        for(const x of r.data) if(x.signedUrl) S.urls[x.path]={url:x.signedUrl, exp:now+3600e3};
+      }
+    },
+    createPlayer(v){ return api.q(S.db.from('players').insert(v)); },
     updatePlayer(id,v){ return api.q(S.db.from('players').update(v).eq('id',id)); },
     addActivity(v){ return api.q(S.db.from('activities').insert(v)).then(api.loadAll); },
     updateActivity(id,v){ return api.q(S.db.from('activities').update(v).eq('id',id)).then(api.loadAll); },
@@ -442,13 +486,26 @@
       notice(!window.supabase ? 'Couldn’t load the app. Check your connection and reload.' : 'Setup needed: add your Supabase URL and key to config.js.', true);
       render(); return;
     }
-    S.db=window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, {auth:{persistSession:false}});
-    try{ await api.loadAll(); }
-    catch(e){ console.warn(e); S.loaded=true; S.peopleLoaded=true; notice('Couldn’t load the challenge. Check your connection and reload.', true); render(); return; }
-    if(!S.me) openJoin(false);
-    // live updates from your friend, plus a refresh whenever the app comes back to the front
-    let lT; const refresh=()=>{ clearTimeout(lT); lT=setTimeout(()=>api.loadAll().catch(()=>{}),300); };
-    S.db.channel('proofduel').on('postgres_changes',{event:'*',schema:'public'},refresh).subscribe();
+    S.db=window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, {auth:{persistSession:true, autoRefreshToken:true, storageKey:'proofduel.auth'}});
+    let channel=null, lT;
+    const refresh=()=>{ clearTimeout(lT); lT=setTimeout(()=>{ if(S.me) api.loadAll().catch(()=>{}); },300); };
+    const reset=()=>{ S.me=null; S.people=[]; S.acts=[]; S.logs={}; S.urls={}; S.ready=false; S.loaded=true; S.peopleLoaded=true; };
+    async function onSession(session){
+      if(!session){
+        reset(); if(channel){ S.db.removeChannel(channel); channel=null; }
+        render(); openJoin(J.mode==='signin'?'signin':'signup'); return;
+      }
+      if(S.me===session.user.id && S.ready) return;
+      S.me=session.user.id;
+      try{ await api.loadAll(); }
+      catch(e){ console.warn(e); S.loaded=true; S.peopleLoaded=true; notice('Couldn’t load the challenge. Check your connection and reload.', true); render(); return; }
+      notice('');
+      if(S.joining){ /* the sign-up form finishes the profile itself */ }
+      else if(!S.people.some(p=>p.id===S.me)) openJoin('finish');   // signed in but no profile yet
+      else if($('join').open && J.mode!=='edit') $('join').close();
+      if(!channel){ channel=S.db.channel('proofduel').on('postgres_changes',{event:'*',schema:'public'},refresh).subscribe(); }
+    }
+    S.db.auth.onAuthStateChange((ev,session)=>{ if(ev==='TOKEN_REFRESHED') return; setTimeout(()=>onSession(session),0); });
     document.addEventListener('visibilitychange',()=>{ if(!document.hidden) refresh(); });
     setInterval(()=>{ if(!document.hidden) refresh(); }, 60000);
   })();
