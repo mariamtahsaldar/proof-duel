@@ -285,7 +285,12 @@
   function joinErr(msg){ $('joinErr').textContent=msg; $('joinErr').hidden=false; }
   $('joinToggle').onclick=()=>openJoin(J.mode==='signup'?'signin':'signup');
   $('joinCancel').onclick=()=>$('join').close();
-  $('signOut').onclick=async()=>{ await S.db.rpc('sign_out').catch(()=>{}); $('join').close(); leave(); };
+  $('signOut').onclick=async()=>{
+    $('signOut').disabled=true;
+    try{ const r=await S.db.rpc('sign_out'); if(r.error) console.warn(r.error); }catch(x){ console.warn(x); }
+    $('signOut').disabled=false;
+    $('join').close(); leave(); toast('Signed out');
+  };
   $('join').addEventListener('cancel',e=>{ if(J.mode!=='edit') e.preventDefault(); });
   $('meBtn').onclick=()=>openJoin('edit');
   const RPC_ERR = {
