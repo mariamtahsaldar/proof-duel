@@ -311,7 +311,15 @@
       if(J.mode==='signup'){
         if(pw.length<8){ joinErr('Use a password with at least 8 characters.'); return; }
         const r=await S.db.auth.signUp({email:await loginFor(nm), password:pw});
-        if(r.error){ joinErr(/registered|exists/i.test(r.error.message) ? 'That name already has an account. Tap “Sign in” below.' : /password/i.test(r.error.message) ? r.error.message : 'Couldn’t create the account. Try again.'); return; }
+        if(r.error){
+          const m=r.error.message||'', c=r.error.code||'';
+          joinErr(/registered|exists/i.test(m) ? 'That name already has an account. Tap “Sign in” below.'
+            : /not authorized|confirm|sending|smtp/i.test(m+' '+c) ? 'Supabase is still trying to send a confirmation email. In Supabase turn off Authentication → Email → “Confirm email”, save, then try again.'
+            : /signup.*(disabled|not allowed)|signups not allowed/i.test(m+' '+c) ? 'New sign-ups are turned off in Supabase (Authentication → “Allow new users to sign up”).'
+            : /rate limit/i.test(m+' '+c) ? 'Too many tries. Wait a few minutes and try again.'
+            : /password/i.test(m) ? m
+            : `Couldn’t create the account. Supabase said: “${m||c||'unknown error'}”`);
+          return; }
         if(!r.data.session){ joinErr('Account created, but email confirmation is still turned on in Supabase. Turn off “Confirm email”, then sign in.'); return; }
         S.me=r.data.session.user.id;
       }
