@@ -285,55 +285,46 @@
   function joinErr(msg){ $('joinErr').textContent=msg; $('joinErr').hidden=false; }
   $('joinToggle').onclick=()=>openJoin(J.mode==='signup'?'signin':'signup');
   $('joinCancel').onclick=()=>$('join').close();
-  $('signOut').onclick=async()=>{ await S.db.auth.signOut().catch(()=>{}); $('join').close(); };
+  $('signOut').onclick=async()=>{ await S.db.rpc('sign_out').catch(()=>{}); $('join').close(); leave(); };
   $('join').addEventListener('cancel',e=>{ if(J.mode!=='edit') e.preventDefault(); });
   $('meBtn').onclick=()=>openJoin('edit');
-  // Names sign you in, so each name maps to a private login address that never receives mail.
-  async function loginFor(nm){
-    const bytes=new TextEncoder().encode(nm.trim().toLowerCase().normalize('NFC'));
-    const h=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
-    return `u${[...h.slice(0,16)].map(b=>b.toString(16).padStart(2,'0')).join('')}@players.proofduel.app`;
+  const RPC_ERR = {
+    name_taken:'That name already has an account. Tap “Sign in” below.',
+    challenge_full:'This challenge already has its two players.',
+    weak_password:'Use a password with 8 to 72 characters.',
+    bad_name:'Enter a name up to 24 characters.',
+    not_signed_in:'Couldn’t connect. Reload the page and try again.'
+  };
+  function explain(x){
+    const m=(x?.message||'')+' '+(x?.code||'');
+    for(const k in RPC_ERR) if(m.includes(k)) return RPC_ERR[k];
+    if(/function .* does not exist|PGRST202|42883|relation .* does not exist/i.test(m)) return 'The database isn’t set up yet. Run the new setup.sql in Supabase’s SQL Editor.';
+    return `Something went wrong: “${(x?.message||x?.code||'unknown error').slice(0,140)}”`;
   }
   $('joinForm').addEventListener('submit', async e=>{
     e.preventDefault();
     const nm=$('joinName').value.trim().slice(0,24), pw=$('joinPw').value; if(!nm) return;
-    $('joinErr').hidden=true; $('joinBtn').disabled=true; S.joining = J.mode==='signup';
+    $('joinErr').hidden=true; $('joinBtn').disabled=true;
     try{
+      if(!S.authed){ joinErr(S.authErr || 'Couldn’t connect. Reload the page and try again.'); return; }
       if(J.mode==='edit'){
         await api.updatePlayer(S.me,{emoji:J.emoji, color:J.color}); await api.loadAll();
         $('join').close(); toast('Profile saved'); return;
       }
       if(J.mode==='signin'){
-        const r=await S.db.auth.signInWithPassword({email:await loginFor(nm), password:pw});
-        if(r.error){ joinErr(r.error.status===400 ? 'That name and password don’t match.' : 'Couldn’t sign in. Check your connection and try again.'); return; }
-        $('join').close(); return;   // onAuthStateChange loads everything
+        const r=await S.db.rpc('sign_in',{p_name:nm, p_password:pw});
+        if(r.error) throw r.error;
+        if(r.data==='wrong'){ joinErr('That name and password don’t match.'); return; }
+        if(r.data==='locked'){ joinErr('Too many wrong tries. This account is locked for 15 minutes.'); return; }
+        if(r.data!=='ok'){ joinErr(RPC_ERR[r.data]||'Couldn’t sign in. Try again.'); return; }
+        await enter(); $('join').close(); toast(`Welcome back, ${name(S.me)}!`); return;
       }
-      if(J.mode==='signup'){
-        if(pw.length<8){ joinErr('Use a password with at least 8 characters.'); return; }
-        const r=await S.db.auth.signUp({email:await loginFor(nm), password:pw});
-        if(r.error){
-          const m=r.error.message||'', c=r.error.code||'';
-          joinErr(/registered|exists/i.test(m) ? 'That name already has an account. Tap “Sign in” below.'
-            : /not authorized|confirm|sending|smtp/i.test(m+' '+c) ? 'Supabase is still trying to send a confirmation email. In Supabase turn off Authentication → Email → “Confirm email”, save, then try again.'
-            : /signup.*(disabled|not allowed)|signups not allowed/i.test(m+' '+c) ? 'New sign-ups are turned off in Supabase (Authentication → “Allow new users to sign up”).'
-            : /rate limit/i.test(m+' '+c) ? 'Too many tries. Wait a few minutes and try again.'
-            : /password/i.test(m) ? m
-            : `Couldn’t create the account. Supabase said: “${m||c||'unknown error'}”`);
-          return; }
-        if(!r.data.session){ joinErr('Account created, but email confirmation is still turned on in Supabase. Turn off “Confirm email”, then sign in.'); return; }
-        S.me=r.data.session.user.id;
-      }
-      // signup or finish: create the player profile
-      await api.createPlayer({id:S.me, name:nm, emoji:J.emoji, color:J.color});
-      await api.loadAll();
-      $('join').close(); toast(`Welcome, ${nm}! ${J.emoji}`); confetti();
-    }catch(x){
-      console.warn(x);
-      if(/two players/i.test(x?.message||'')){ joinErr('This challenge already has its two players.'); await S.db.auth.signOut().catch(()=>{}); }
-      else if(x?.code==='23505') joinErr('That name is already taken.');
-      else joinErr('Something went wrong. Check your connection and try again.');
-    }
-    finally{ $('joinBtn').disabled=false; S.joining=false; }
+      if(pw.length<8){ joinErr('Use a password with at least 8 characters.'); return; }
+      const r=await S.db.rpc('create_player',{p_name:nm, p_password:pw, p_emoji:J.emoji, p_color:J.color});
+      if(r.error) throw r.error;
+      await enter(); $('join').close(); toast(`Welcome, ${nm}! ${J.emoji}`); confetti();
+    }catch(x){ console.warn(x); joinErr(explain(x)); }
+    finally{ $('joinBtn').disabled=false; }
   });
 
   // ---- photo gallery ----
@@ -488,6 +479,22 @@
     async removePhoto(path){ const r=await S.db.storage.from('proofs').remove([path]); if(r.error) throw r.error; }
   };
 
+  let channel=null, lT;
+  const refresh=()=>{ clearTimeout(lT); lT=setTimeout(()=>{ if(S.me) api.loadAll().catch(()=>{}); },300); };
+  // signed in as a player on this phone: load everything and listen for changes
+  async function enter(){
+    const r=await S.db.rpc('my_player'); if(r.error) throw r.error;
+    S.me=r.data; if(!S.me) return false;
+    await api.loadAll(); notice('');
+    if(!channel) channel=S.db.channel('proofduel').on('postgres_changes',{event:'*',schema:'public'},refresh).subscribe();
+    return true;
+  }
+  function leave(){
+    S.me=null; S.people=[]; S.acts=[]; S.logs={}; S.urls={}; S.ready=false; S.loaded=true; S.peopleLoaded=true;
+    if(channel){ S.db.removeChannel(channel); channel=null; }
+    render(); openJoin('signin');
+  }
+
   (async()=>{
     if(!CFG.supabaseUrl || !CFG.supabaseAnonKey || !window.supabase){
       S.loaded=true; S.peopleLoaded=true;
@@ -495,25 +502,23 @@
       render(); return;
     }
     S.db=window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, {auth:{persistSession:true, autoRefreshToken:true, storageKey:'proofduel.auth'}});
-    let channel=null, lT;
-    const refresh=()=>{ clearTimeout(lT); lT=setTimeout(()=>{ if(S.me) api.loadAll().catch(()=>{}); },300); };
-    const reset=()=>{ S.me=null; S.people=[]; S.acts=[]; S.logs={}; S.urls={}; S.ready=false; S.loaded=true; S.peopleLoaded=true; };
-    async function onSession(session){
-      if(!session){
-        reset(); if(channel){ S.db.removeChannel(channel); channel=null; }
-        render(); openJoin(J.mode==='signin'?'signin':'signup'); return;
+    S.loaded=true; S.peopleLoaded=true;
+    // Every phone gets a private, anonymous session first; it can see nothing until a name + password is proven.
+    try{
+      const s=await S.db.auth.getSession();
+      if(!s.data.session){
+        const r=await S.db.auth.signInAnonymously();
+        if(r.error) throw r.error;
       }
-      if(S.me===session.user.id && S.ready) return;
-      S.me=session.user.id;
-      try{ await api.loadAll(); }
-      catch(e){ console.warn(e); S.loaded=true; S.peopleLoaded=true; notice('Couldn’t load the challenge. Check your connection and reload.', true); render(); return; }
-      notice('');
-      if(S.joining){ /* the sign-up form finishes the profile itself */ }
-      else if(!S.people.some(p=>p.id===S.me)) openJoin('finish');   // signed in but no profile yet
-      else if($('join').open && J.mode!=='edit') $('join').close();
-      if(!channel){ channel=S.db.channel('proofduel').on('postgres_changes',{event:'*',schema:'public'},refresh).subscribe(); }
+      S.authed=true;
+    }catch(x){
+      console.warn(x);
+      S.authErr = /anonymous/i.test(x?.message||'') ? 'Anonymous sign-ins are turned off in Supabase. Turn on Authentication → Sign In / Providers → “Allow anonymous sign-ins”.' : 'Couldn’t connect. Check your connection and reload.';
+      notice(S.authErr, true); render(); openJoin('signup'); return;
     }
-    S.db.auth.onAuthStateChange((ev,session)=>{ if(ev==='TOKEN_REFRESHED') return; setTimeout(()=>onSession(session),0); });
+    try{
+      if(!(await enter())){ render(); openJoin('signup'); }
+    }catch(x){ console.warn(x); render(); notice(explain(x), true); openJoin('signup'); }
     document.addEventListener('visibilitychange',()=>{ if(!document.hidden) refresh(); });
     setInterval(()=>{ if(!document.hidden) refresh(); }, 60000);
   })();

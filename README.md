@@ -11,7 +11,9 @@ Data and photos live in a free Supabase project. The site is plain static files,
 
 ## Security
 
-- Each player has an account (name + password, handled by Supabase Auth).
-- Row Level Security: only the two players can read anything; each player can only add, change or delete their own logs and photos.
+- Each phone gets an anonymous Supabase session that can see nothing on its own.
+- Players sign in with name + password, checked inside the database (bcrypt hashes in a table the app cannot read; 10 wrong tries locks the account for 15 minutes).
+- Row Level Security: only signed-in players can read anything; each player can only add, change or delete their own logs and photos.
 - Photos are in a private bucket and shown through signed links that expire after an hour.
-- The challenge accepts two players only. In Supabase, turn off "Confirm email" (names have no real email address), and once both of you have joined you can also turn off "Allow new users to sign up".
+- Only two players can ever join.
+- Supabase setting needed: Authentication → Sign In / Providers → "Allow anonymous sign-ins" ON.
