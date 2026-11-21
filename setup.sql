@@ -146,6 +146,11 @@ grant execute on function public.current_player(), public.is_member(), public.my
 -- 5. Lock everything down
 revoke all on public.players, public.player_secrets, public.devices, public.activities, public.logs from anon;
 revoke all on public.player_secrets, public.devices from authenticated;
+-- signed-in phones may use these tables; the row rules below still decide what they can see or change
+grant usage on schema public to authenticated;
+grant select, update on public.players to authenticated;
+grant select, insert, update, delete on public.activities to authenticated;
+grant select, insert, update, delete on public.logs to authenticated;
 alter table public.players        enable row level security;
 alter table public.player_secrets enable row level security;
 alter table public.devices        enable row level security;
