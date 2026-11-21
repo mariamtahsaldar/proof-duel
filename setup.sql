@@ -191,3 +191,6 @@ end $$;
 
 -- Done. One setting is needed in Supabase: Authentication → Sign In / Providers →
 -- turn ON "Allow anonymous sign-ins" (and keep "Allow new users to sign up" ON).
+
+-- Make the API notice new columns right away
+notify pgrst, 'reload schema';

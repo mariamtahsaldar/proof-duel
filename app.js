@@ -30,7 +30,7 @@
     return e;
   }
   const icon = (id,cls='icon') => { const s=document.createElementNS('http://www.w3.org/2000/svg','svg'); s.setAttribute('class',cls); const u=document.createElementNS('http://www.w3.org/2000/svg','use'); u.setAttribute('href','#'+id); s.append(u); return s; };
-  let toastT; function toast(msg){ const t=$('toast'); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true,2600); }
+  let toastT; function toast(msg, ms=2600){ const t=$('toast'); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true,ms); }
   function notice(msg, err){ const n=$('notice'); n.textContent=msg||''; n.hidden=!msg; n.classList.toggle('err',!!err); }
   // photos are private: each one is shown through a short-lived signed link
   const PIXEL='data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
@@ -260,11 +260,18 @@
   function drawJoin(){
     $('emojiPicks').replaceChildren(...EMOJIS.map(x=>el('button',{type:'button',class:'pick','aria-pressed':String(x===J.emoji),'aria-label':'Sticker '+x,text:x,onclick:()=>{J.emoji=x;drawJoin();}})));
     $('colorPicks').replaceChildren(...COLORS.map(x=>el('button',{type:'button',class:'swatch','aria-pressed':String(x===J.color),'aria-label':'Color',style:`background:${x}`,onclick:()=>{J.color=x;drawJoin();}})));
-    const a=$('joinAv'), u=J.mode==='edit'?avatarUrl(S.me):null;
-    a.replaceChildren(); a.classList.toggle('has-img',!!u);
+    const a=$('joinAv'), picking=J.mode==='signup'||J.mode==='finish';
+    const u = picking ? J.photoUrl : J.mode==='edit' ? avatarUrl(S.me) : null;
+    a.replaceChildren(); a.classList.toggle('has-img',!!u); a.classList.toggle('empty-photo', picking && !u);
     if(u){ a.append(el('img',{src:u,alt:''})); a.style.background=J.color; }
+    else if(picking){ a.append(icon('i-cam')); a.style.background=''; }
     else { a.textContent=J.mode==='signin'?'👋':J.emoji; a.style.background=`color-mix(in srgb, ${J.color} 20%, transparent)`; }
+    $('joinAvBtn').disabled=!picking;
+    $('joinAvBadge').hidden=!picking;
+    $('joinPhotoHint').hidden=!picking;
+    $('joinPhotoHint').textContent = J.photoBlob ? 'Tap the photo to change it' : 'Tap to add a profile photo (optional)';
   }
+  $('joinAvBtn').onclick=()=>{ if($('joinAvBtn').disabled) return; S.cropTarget='signup'; $('avatarInput').value=''; $('avatarInput').click(); };
   // mode: 'signup' | 'signin' | 'finish' (signed in, profile missing) | 'edit'
   function openJoin(mode){
     J.mode=mode;
@@ -273,14 +280,15 @@
     else if(mode!=='finish') $('joinPw').value='';
     const T={signup:['Create your account','Your name and a password, that’s it.','Create account'],
              signin:['Welcome back','Sign in with your name and password.','Sign in'],
-             finish:['Finish your profile','Pick your sticker and color.','Let’s go'],
+             finish:['Finish your profile','Add a photo if you like.','Let’s go'],
              edit:['Your profile','Change your picture, sticker or color.','Save']}[mode];
     $('joinTitle').textContent=T[0]; $('joinSub').textContent=T[1]; $('joinBtn').textContent=T[2];
     $('joinName').readOnly = mode==='edit';
     $('pwWrap').hidden = mode==='finish' || mode==='edit';
     $('joinPw').required = !$('pwWrap').hidden;
     $('joinPw').autocomplete = mode==='signin' ? 'current-password' : 'new-password';
-    $('looksWrap').hidden = mode==='signin';
+    $('looksWrap').hidden = mode!=='edit';
+    if(mode==='signup' && !J.photoBlob){ J.emoji=EMOJIS[Math.floor(Math.random()*EMOJIS.length)]; J.color=COLORS[Math.floor(Math.random()*COLORS.length)]; }
     $('joinToggle').hidden = !(mode==='signup'||mode==='signin');
     $('joinToggle').textContent = mode==='signup' ? 'Already have an account? Sign in' : 'New here? Create an account';
     $('joinCancel').hidden = mode!=='edit';
@@ -333,7 +341,9 @@
       if(pw.length<8){ joinErr('Use a password with at least 8 characters.'); return; }
       const r=await S.db.rpc('create_player',{p_name:nm, p_password:pw, p_emoji:J.emoji, p_color:J.color});
       if(r.error) throw r.error;
-      await enter(); $('join').close(); toast(`Welcome, ${nm}! ${J.emoji}`); confetti();
+      await enter(); $('join').close(); confetti();
+      if(J.photoBlob){ const b=J.photoBlob; clearJoinPhoto(); await saveAvatar(b); }
+      else toast(`Welcome, ${nm}!`);
     }catch(x){ console.warn(x); joinErr(explain(x)); }
     finally{ $('joinBtn').disabled=false; }
   });
@@ -362,7 +372,7 @@
     $('profEmoji').replaceChildren(...EMOJIS.map(x=>el('button',{type:'button',class:'pick','aria-pressed':String(x===p.emoji),'aria-label':'Sticker '+x,text:x,onclick:()=>{ if(x!==p.emoji) save({emoji:x}); }})));
     $('profColor').replaceChildren(...COLORS.map(x=>el('button',{type:'button',class:'swatch','aria-pressed':String(x===p.color),'aria-label':'Color',style:`background:${x}`,onclick:()=>{ if(x!==p.color) save({color:x}); }})));
   }
-  const pickAvatar=()=>{ if(S.avatarBusy) return; $('avatarInput').value=''; $('avatarInput').click(); };
+  const pickAvatar=()=>{ if(S.avatarBusy) return; S.cropTarget='profile'; $('avatarInput').value=''; $('avatarInput').click(); };
   $('avatarEdit').onclick=pickAvatar; $('avChoose').onclick=pickAvatar;
   $('avatarInput').addEventListener('change', e=>{ const f=e.target.files?.[0]; if(f) openCropper(f); });
   $('avRemove').onclick=async()=>{
@@ -418,6 +428,7 @@
   stage.addEventListener('wheel',e=>{ e.preventDefault(); const r=stage.getBoundingClientRect(); cropZoomTo(C.zoom*(e.deltaY<0?1.1:1/1.1), e.clientX-r.left, e.clientY-r.top); },{passive:false});
   $('cropZoom').addEventListener('input',e=>cropZoomTo(Number(e.target.value)));
   $('cropCancel').onclick=()=>$('cropper').close();
+  function clearJoinPhoto(){ if(J.photoUrl) URL.revokeObjectURL(J.photoUrl); J.photoUrl=null; J.photoBlob=null; }
   $('cropSave').onclick=async()=>{
     const s=stageSize(), sc=C.base*C.zoom, out=512;
     const cv=document.createElement('canvas'); cv.width=cv.height=out;
@@ -425,21 +436,29 @@
     const blob=await new Promise(r=>cv.toBlob(r,'image/jpeg',.88));
     $('cropper').close();
     if(!blob){ toast('Couldn’t read that photo. Try another one.'); return; }
-    // show it immediately, upload in the background
+    if(S.cropTarget==='signup'){ clearJoinPhoto(); J.photoBlob=blob; J.photoUrl=URL.createObjectURL(blob); drawJoin(); return; }
+    await saveAvatar(blob);
+  };
+  // upload a cropped photo and make it this player's picture; shows it immediately, rolls back on failure
+  async function saveAvatar(blob){
     const prevLocal=S.localAvatar; S.localAvatar=URL.createObjectURL(blob); S.avatarBusy=true; render();
     const old=person(S.me).avatar;
     try{
       const path=`${S.me}/avatar-${(crypto.randomUUID?crypto.randomUUID():Date.now())}.jpg`;
       const up=await S.db.storage.from('proofs').upload(path, blob, {contentType:'image/jpeg'});
-      if(up.error) throw new Error('Upload failed: '+up.error.message);
+      if(up.error) throw new Error('Photo upload failed: '+up.error.message);
       try{ await api.updatePlayer(S.me,{avatar:path}); }
-      catch(x){ S.db.storage.from('proofs').remove([path]); throw /avatar/i.test(x?.message||'') ? new Error('The database needs the profile-photo update. Run the avatar SQL in Supabase.') : x; }
+      catch(x){
+        S.db.storage.from('proofs').remove([path]);
+        const m=x?.message||'';
+        throw new Error(/avatar/i.test(m) ? 'Supabase doesn’t know the photo column yet. Run the profile-photo SQL (and the schema reload line), then try again. Details: '+m : m);
+      }
       if(old) api.removePhoto(old).catch(()=>{});
       await api.loadAll();
-      toast('Profile photo updated');
-    }catch(x){ console.warn(x); toast(x?.message||'Couldn’t save your photo.'); }
+      toast('Profile photo saved');
+    }catch(x){ console.warn(x); toast(x?.message||'Couldn’t save your photo.', 7000); }
     finally{ if(S.localAvatar && S.localAvatar!==prevLocal) URL.revokeObjectURL(S.localAvatar); S.localAvatar=null; S.avatarBusy=false; render(); }
-  };
+  }
 
   // ---- photo gallery ----
   const G={items:[],i:0};
