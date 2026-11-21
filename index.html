@@ -93,6 +93,7 @@
 </nav></div>
 
 <input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
+<input type="file" id="avatarInput" accept="image/*" hidden>
 <canvas id="confetti" aria-hidden="true"></canvas>
 
 <dialog id="join">
@@ -104,8 +105,15 @@
       <span class="lbl">Password</span>
       <input class="field" id="joinPw" type="password" minlength="8" maxlength="72" placeholder="At least 8 characters" autocomplete="new-password">
     </div>
+    <div id="photoWrap" hidden style="display:flex;flex-direction:column;gap:16px">
+      <span class="lbl">Profile picture</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" type="button" id="photoPick">Choose picture</button>
+        <button class="btn link" type="button" id="photoRemove" hidden>Remove picture</button>
+      </div>
+    </div>
     <div id="looksWrap" style="display:flex;flex-direction:column;gap:16px">
-      <span class="lbl">Sticker</span>
+      <span class="lbl">Sticker <span style="font-weight:500">(shown if you have no picture)</span></span>
       <div class="picks" id="emojiPicks"></div>
       <span class="lbl">Color</span>
       <div class="picks" id="colorPicks"></div>

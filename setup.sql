@@ -34,6 +34,7 @@ create table public.players (
   name text not null check (char_length(name) between 1 and 24),
   emoji text not null default '🌸' check (char_length(emoji) <= 8),
   color text not null default '#e6407e' check (color ~ '^#[0-9a-fA-F]{6}$'),
+  avatar text check (avatar is null or char_length(avatar) <= 200),
   joined_at timestamptz not null default now()
 );
 create unique index players_name_ci on public.players (lower(name));

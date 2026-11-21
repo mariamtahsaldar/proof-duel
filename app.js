@@ -39,7 +39,10 @@
   const name = id => person(id).displayName || (id===S.me ? 'You' : 'Your friend');
   const emoji = id => EMOJIS.includes(person(id).emoji) ? person(id).emoji : '🌸';
   const color = id => COLORS.includes(person(id).color) ? person(id).color : COLORS[0];
-  const av = (id, cls='av') => el('span',{class:cls,style:`background:color-mix(in srgb, ${color(id)} 20%, transparent)`,text:emoji(id),'aria-hidden':'true'});
+  const avatarUrl = id => { const p=person(id).avatar; return p && S.urls[p] ? S.urls[p].url : null; };
+  const av = (id, cls='av') => { const u=avatarUrl(id);
+    return u ? el('span',{class:cls+' has-img',style:`background:${color(id)}`,'aria-hidden':'true'}, el('img',{src:u,alt:''}))
+             : el('span',{class:cls,style:`background:color-mix(in srgb, ${color(id)} 20%, transparent)`,text:emoji(id),'aria-hidden':'true'}); };
   const hash = s => [...s].reduce((h,c)=>(h*31+c.charCodeAt(0))>>>0,7);
   const pickLine = (arr, salt='') => arr[hash(todayKey()+salt)%arr.length];
 
@@ -257,8 +260,34 @@
   function drawJoin(){
     $('emojiPicks').replaceChildren(...EMOJIS.map(x=>el('button',{type:'button',class:'pick','aria-pressed':String(x===J.emoji),'aria-label':'Sticker '+x,text:x,onclick:()=>{J.emoji=x;drawJoin();}})));
     $('colorPicks').replaceChildren(...COLORS.map(x=>el('button',{type:'button',class:'swatch','aria-pressed':String(x===J.color),'aria-label':'Color',style:`background:${x}`,onclick:()=>{J.color=x;drawJoin();}})));
-    const a=$('joinAv'); a.textContent=J.mode==='signin'?'👋':J.emoji; a.style.background=`color-mix(in srgb, ${J.color} 20%, transparent)`;
+    const a=$('joinAv'), u=J.mode==='edit'?avatarUrl(S.me):null;
+    a.replaceChildren(); a.classList.toggle('has-img',!!u);
+    if(u){ a.append(el('img',{src:u,alt:''})); a.style.background=J.color; }
+    else { a.textContent=J.mode==='signin'?'👋':J.emoji; a.style.background=`color-mix(in srgb, ${J.color} 20%, transparent)`; }
+    $('photoRemove').hidden=!person(S.me).avatar;
   }
+  // ---- profile picture ----
+  $('photoPick').onclick=()=>{ $('avatarInput').value=''; $('avatarInput').click(); };
+  $('avatarInput').addEventListener('change', async e=>{
+    const f=e.target.files?.[0]; if(!f||!S.me) return;
+    const btn=$('photoPick'); btn.disabled=true; btn.textContent='Uploading…';
+    try{
+      const img=await shrink(f, 480, true);
+      const old=person(S.me).avatar;
+      const path=`${S.me}/avatar-${(crypto.randomUUID?crypto.randomUUID():Date.now())}.jpg`;
+      const r=await S.db.storage.from('proofs').upload(path, img, {contentType:'image/jpeg'});
+      if(r.error) throw r.error;
+      await api.updatePlayer(S.me,{avatar:path});
+      if(old) api.removePhoto(old).catch(()=>{});
+      await api.loadAll(); drawJoin(); toast('Profile picture updated');
+    }catch(x){ console.warn(x); toast(/avatar/i.test(x?.message||'') ? 'Run the profile-picture update in Supabase first.' : 'Upload failed. Try again.'); }
+    finally{ btn.disabled=false; btn.textContent='Choose picture'; }
+  });
+  $('photoRemove').onclick=async()=>{
+    const old=person(S.me).avatar; if(!old) return;
+    try{ await api.updatePlayer(S.me,{avatar:null}); api.removePhoto(old).catch(()=>{}); await api.loadAll(); drawJoin(); toast('Profile picture removed'); }
+    catch(x){ err(x); }
+  };
   // mode: 'signup' | 'signin' | 'finish' (signed in, profile missing) | 'edit'
   function openJoin(mode){
     J.mode=mode;
@@ -268,13 +297,14 @@
     const T={signup:['Create your account','Your name and a password, that’s it.','Create account'],
              signin:['Welcome back','Sign in with your name and password.','Sign in'],
              finish:['Finish your profile','Pick your sticker and color.','Let’s go'],
-             edit:['Your profile','Change your sticker or color.','Save']}[mode];
+             edit:['Your profile','Change your picture, sticker or color.','Save']}[mode];
     $('joinTitle').textContent=T[0]; $('joinSub').textContent=T[1]; $('joinBtn').textContent=T[2];
     $('joinName').readOnly = mode==='edit';
     $('pwWrap').hidden = mode==='finish' || mode==='edit';
     $('joinPw').required = !$('pwWrap').hidden;
     $('joinPw').autocomplete = mode==='signin' ? 'current-password' : 'new-password';
     $('looksWrap').hidden = mode==='signin';
+    $('photoWrap').hidden = mode!=='edit';
     $('joinToggle').hidden = !(mode==='signup'||mode==='signin');
     $('joinToggle').textContent = mode==='signup' ? 'Already have an account? Sign in' : 'New here? Create an account';
     $('joinCancel').hidden = mode!=='edit';
@@ -405,17 +435,20 @@
     }finally{ S.busy=null; renderToday(); }
   });
   // Resize photos to at most 1600px JPEG so uploads stay small.
-  async function shrink(file){
+  async function shrink(file, max=1600, square=false){
     try{
       const url=URL.createObjectURL(file);
       const im=await new Promise((res,rej)=>{const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url;});
-      const s=Math.min(1,1600/Math.max(im.naturalWidth,im.naturalHeight));
-      const c=document.createElement('canvas'); c.width=Math.round(im.naturalWidth*s); c.height=Math.round(im.naturalHeight*s);
-      c.getContext('2d').drawImage(im,0,0,c.width,c.height); URL.revokeObjectURL(url);
-      const b=await new Promise(r=>c.toBlob(r,'image/jpeg',.82));
+      let sx=0, sy=0, sw=im.naturalWidth, sh=im.naturalHeight;
+      if(square){ const m=Math.min(sw,sh); sx=(sw-m)/2; sy=(sh-m)/2; sw=sh=m; }
+      const s=Math.min(1,max/Math.max(sw,sh));
+      const c=document.createElement('canvas'); c.width=Math.round(sw*s); c.height=Math.round(sh*s);
+      c.getContext('2d').drawImage(im,sx,sy,sw,sh,0,0,c.width,c.height); URL.revokeObjectURL(url);
+      const b=await new Promise(r=>c.toBlob(r,'image/jpeg',.85));
       return b||file;
     }catch(e){ return file; }
   }
+
 
   // ---- activities form ----
   $('addForm').addEventListener('submit', e=>{
@@ -450,7 +483,7 @@
         db.from('activities').select('*').order('sort'),
         db.from('logs').select('*').order('created_at')]);
       for(const r of [p,a,l]) if(r.error) throw r.error;
-      S.people=p.data.map(r=>({id:r.id, displayName:r.name, emoji:r.emoji, color:r.color, joinedAt:Date.parse(r.joined_at)}));
+      S.people=p.data.map(r=>({id:r.id, displayName:r.name, emoji:r.emoji, color:r.color, avatar:r.avatar||null, joinedAt:Date.parse(r.joined_at)}));
       S.acts=a.data.map(r=>({id:r.id, name:r.name, points:r.points, required:r.required, order:r.sort}));
       S.logs={};
       for(const r of l.data) (S.logs[r.player_id] ??= []).push({id:r.id, activityId:r.activity_id, activityName:r.activity_name, points:r.points, date:r.date, photos:r.photos||[], createdAt:Date.parse(r.created_at)});
@@ -461,7 +494,7 @@
     async q(p){ const r=await p; if(r.error) throw r.error; return r.data; },
     async signPhotos(){
       const now=Date.now();
-      const need=[...new Set(Object.values(S.logs).flat().flatMap(l=>pics(l)))].filter(p=>!S.urls[p] || S.urls[p].exp<now+5*60e3);
+      const need=[...new Set([...Object.values(S.logs).flat().flatMap(l=>pics(l)), ...S.people.map(p=>p.avatar).filter(Boolean)])].filter(p=>!S.urls[p] || S.urls[p].exp<now+5*60e3);
       for(let i=0;i<need.length;i+=100){
         const r=await S.db.storage.from('proofs').createSignedUrls(need.slice(i,i+100), 3600);
         if(r.error) { console.warn(r.error); continue; }
