@@ -39,7 +39,7 @@
   const name = id => person(id).displayName || (id===S.me ? 'You' : 'Your friend');
   const emoji = id => EMOJIS.includes(person(id).emoji) ? person(id).emoji : '🌸';
   const color = id => COLORS.includes(person(id).color) ? person(id).color : COLORS[0];
-  const avatarUrl = id => { const p=person(id).avatar; return p && S.urls[p] ? S.urls[p].url : null; };
+  const avatarUrl = id => { if(id===S.me && S.localAvatar) return S.localAvatar; const p=person(id).avatar; return p && S.urls[p] ? S.urls[p].url : null; };
   const av = (id, cls='av') => { const u=avatarUrl(id);
     return u ? el('span',{class:cls+' has-img',style:`background:${color(id)}`,'aria-hidden':'true'}, el('img',{src:u,alt:''}))
              : el('span',{class:cls,style:`background:color-mix(in srgb, ${color(id)} 20%, transparent)`,text:emoji(id),'aria-hidden':'true'}); };
@@ -99,7 +99,7 @@
   }
 
   // ---- render ----
-  function render(){ renderHeader(); renderStreaks(); renderRace(); renderDays(); renderToday(); renderFeed(); renderWeek(); renderActs(); }
+  function render(){ renderHeader(); renderStreaks(); renderRace(); renderDays(); renderToday(); renderFeed(); renderWeek(); renderActs(); renderProfile(); }
 
   function renderStreaks(){
     const ids=players(), C=$('streaks'); C.replaceChildren(); C.hidden=!ids.length;
@@ -264,30 +264,7 @@
     a.replaceChildren(); a.classList.toggle('has-img',!!u);
     if(u){ a.append(el('img',{src:u,alt:''})); a.style.background=J.color; }
     else { a.textContent=J.mode==='signin'?'👋':J.emoji; a.style.background=`color-mix(in srgb, ${J.color} 20%, transparent)`; }
-    $('photoRemove').hidden=!person(S.me).avatar;
   }
-  // ---- profile picture ----
-  $('photoPick').onclick=()=>{ $('avatarInput').value=''; $('avatarInput').click(); };
-  $('avatarInput').addEventListener('change', async e=>{
-    const f=e.target.files?.[0]; if(!f||!S.me) return;
-    const btn=$('photoPick'); btn.disabled=true; btn.textContent='Uploading…';
-    try{
-      const img=await shrink(f, 480, true);
-      const old=person(S.me).avatar;
-      const path=`${S.me}/avatar-${(crypto.randomUUID?crypto.randomUUID():Date.now())}.jpg`;
-      const r=await S.db.storage.from('proofs').upload(path, img, {contentType:'image/jpeg'});
-      if(r.error) throw r.error;
-      await api.updatePlayer(S.me,{avatar:path});
-      if(old) api.removePhoto(old).catch(()=>{});
-      await api.loadAll(); drawJoin(); toast('Profile picture updated');
-    }catch(x){ console.warn(x); toast(/avatar/i.test(x?.message||'') ? 'Run the profile-picture update in Supabase first.' : 'Upload failed. Try again.'); }
-    finally{ btn.disabled=false; btn.textContent='Choose picture'; }
-  });
-  $('photoRemove').onclick=async()=>{
-    const old=person(S.me).avatar; if(!old) return;
-    try{ await api.updatePlayer(S.me,{avatar:null}); api.removePhoto(old).catch(()=>{}); await api.loadAll(); drawJoin(); toast('Profile picture removed'); }
-    catch(x){ err(x); }
-  };
   // mode: 'signup' | 'signin' | 'finish' (signed in, profile missing) | 'edit'
   function openJoin(mode){
     J.mode=mode;
@@ -304,7 +281,6 @@
     $('joinPw').required = !$('pwWrap').hidden;
     $('joinPw').autocomplete = mode==='signin' ? 'current-password' : 'new-password';
     $('looksWrap').hidden = mode==='signin';
-    $('photoWrap').hidden = mode!=='edit';
     $('joinToggle').hidden = !(mode==='signup'||mode==='signin');
     $('joinToggle').textContent = mode==='signup' ? 'Already have an account? Sign in' : 'New here? Create an account';
     $('joinCancel').hidden = mode!=='edit';
@@ -322,7 +298,7 @@
     $('join').close(); leave(); toast('Signed out');
   };
   $('join').addEventListener('cancel',e=>{ if(J.mode!=='edit') e.preventDefault(); });
-  $('meBtn').onclick=()=>openJoin('edit');
+  $('meBtn').onclick=()=>{ location.hash='#profile'; };
   const RPC_ERR = {
     name_taken:'That name already has an account. Tap “Sign in” below.',
     challenge_full:'This challenge already has its two players.',
@@ -361,6 +337,109 @@
     }catch(x){ console.warn(x); joinErr(explain(x)); }
     finally{ $('joinBtn').disabled=false; }
   });
+
+  // ---- profile screen ----
+  function weeksWon(id){
+    const thisMon=key(monday(new Date())), weeks={};
+    for(const l of allLogs()){ const w=key(monday(parse(l.date))); if(w>=thisMon) continue; (weeks[w]??={})[l.uid]=(weeks[w][l.uid]||0)+(Number(l.points)||0); }
+    let n=0; for(const w in weeks){ const sc=players().map(p=>weeks[w][p]||0); const mine=weeks[w][id]||0; if(mine>0 && sc.filter(x=>x>=mine).length===1) n++; }
+    return n;
+  }
+  function renderProfile(){
+    if(!S.me || !person(S.me).displayName) return;
+    const p=person(S.me);
+    $('profAv').replaceWith(Object.assign(av(S.me,'av xl'+(S.avatarBusy?' uploading':'')),{id:'profAv'}));
+    $('profName').textContent=p.displayName;
+    $('avChoose').textContent = S.avatarBusy ? 'Saving…' : (p.avatar||S.localAvatar ? 'Change photo' : 'Add photo');
+    $('avChoose').disabled = $('avatarEdit').disabled = !!S.avatarBusy;
+    $('avRemove').hidden = !p.avatar || !!S.avatarBusy;
+    const total=(S.logs[S.me]||[]).reduce((s,l)=>s+(Number(l.points)||0),0);
+    const proofs=(S.logs[S.me]||[]).reduce((s,l)=>s+pics(l).length,0);
+    const stat=(v,k)=>el('div',{class:'card'}, el('b',{text:String(v)}), el('span',{text:k}));
+    $('profStats').replaceChildren(stat(`🔥 ${streak(S.me)}`,'Day streak'), stat(total,'Total points'), stat(`👑 ${weeksWon(S.me)}`,'Weeks won'), );
+    $('profStats').title=`${proofs} proof photos`;
+    const save=async v=>{ try{ await api.updatePlayer(S.me,v); await api.loadAll(); toast('Saved'); }catch(x){ console.warn(x); toast(x?.message||'Couldn’t save.'); } };
+    $('profEmoji').replaceChildren(...EMOJIS.map(x=>el('button',{type:'button',class:'pick','aria-pressed':String(x===p.emoji),'aria-label':'Sticker '+x,text:x,onclick:()=>{ if(x!==p.emoji) save({emoji:x}); }})));
+    $('profColor').replaceChildren(...COLORS.map(x=>el('button',{type:'button',class:'swatch','aria-pressed':String(x===p.color),'aria-label':'Color',style:`background:${x}`,onclick:()=>{ if(x!==p.color) save({color:x}); }})));
+  }
+  const pickAvatar=()=>{ if(S.avatarBusy) return; $('avatarInput').value=''; $('avatarInput').click(); };
+  $('avatarEdit').onclick=pickAvatar; $('avChoose').onclick=pickAvatar;
+  $('avatarInput').addEventListener('change', e=>{ const f=e.target.files?.[0]; if(f) openCropper(f); });
+  $('avRemove').onclick=async()=>{
+    const old=person(S.me).avatar; if(!old) return;
+    S.avatarBusy=true; renderProfile();
+    try{ await api.updatePlayer(S.me,{avatar:null}); api.removePhoto(old).catch(()=>{}); await api.loadAll(); toast('Photo removed'); }
+    catch(x){ console.warn(x); toast(x?.message||'Couldn’t remove the photo.'); }
+    finally{ S.avatarBusy=false; render(); }
+  };
+  $('profSignOut').onclick=async()=>{
+    $('profSignOut').disabled=true;
+    try{ const r=await S.db.rpc('sign_out'); if(r.error) console.warn(r.error); }catch(x){ console.warn(x); }
+    $('profSignOut').disabled=false; location.hash='#today'; leave(); toast('Signed out');
+  };
+
+  // ---- photo cropper: drag to move, pinch / slider / wheel to zoom ----
+  const C={img:null, url:null, w:0, h:0, base:1, zoom:1, x:0, y:0, ptrs:new Map(), pinch:null};
+  const stageSize=()=>$('cropStage').clientWidth||300;
+  function cropClamp(){
+    const s=stageSize(), sc=C.base*C.zoom, iw=C.w*sc, ih=C.h*sc;
+    C.x=Math.min(0,Math.max(s-iw,C.x)); C.y=Math.min(0,Math.max(s-ih,C.y));
+  }
+  function cropDraw(){ cropClamp(); const sc=C.base*C.zoom; $('cropImg').style.transform=`translate(${C.x}px,${C.y}px) scale(${sc})`; }
+  function cropZoomTo(z, cx, cy){
+    const s=stageSize(); cx??=s/2; cy??=s/2;
+    const old=C.base*C.zoom; C.zoom=Math.min(4,Math.max(1,z)); const nw=C.base*C.zoom;
+    C.x=cx-(cx-C.x)*nw/old; C.y=cy-(cy-C.y)*nw/old;
+    $('cropZoom').value=String(C.zoom); cropDraw();
+  }
+  async function openCropper(file){
+    if(C.url) URL.revokeObjectURL(C.url);
+    C.url=URL.createObjectURL(file);
+    const im=$('cropImg');
+    try{ await new Promise((res,rej)=>{ im.onload=res; im.onerror=rej; im.src=C.url; }); }
+    catch(e){ toast('That file isn’t a photo this phone can open. Try a JPG or PNG.'); return; }
+    $('cropper').showModal();
+    C.w=im.naturalWidth; C.h=im.naturalHeight; im.style.width=C.w+'px'; im.style.height=C.h+'px';
+    const s=stageSize(); C.base=s/Math.min(C.w,C.h); C.zoom=1; $('cropZoom').value='1';
+    C.x=(s-C.w*C.base)/2; C.y=(s-C.h*C.base)/2; cropDraw();
+  }
+  const stage=$('cropStage');
+  stage.addEventListener('pointerdown',e=>{ stage.setPointerCapture(e.pointerId); C.ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY}); if(C.ptrs.size===2){ const [a,b]=[...C.ptrs.values()]; C.pinch={d:Math.hypot(a.x-b.x,a.y-b.y), z:C.zoom}; } });
+  stage.addEventListener('pointermove',e=>{
+    const prev=C.ptrs.get(e.pointerId); if(!prev) return;
+    const cur={x:e.clientX,y:e.clientY}; C.ptrs.set(e.pointerId,cur);
+    if(C.ptrs.size===2 && C.pinch){
+      const [a,b]=[...C.ptrs.values()], r=stage.getBoundingClientRect();
+      cropZoomTo(C.pinch.z*Math.hypot(a.x-b.x,a.y-b.y)/C.pinch.d, (a.x+b.x)/2-r.left, (a.y+b.y)/2-r.top);
+    } else if(C.ptrs.size===1){ C.x+=cur.x-prev.x; C.y+=cur.y-prev.y; cropDraw(); }
+  });
+  const ptrUp=e=>{ C.ptrs.delete(e.pointerId); if(C.ptrs.size<2) C.pinch=null; };
+  stage.addEventListener('pointerup',ptrUp); stage.addEventListener('pointercancel',ptrUp);
+  stage.addEventListener('wheel',e=>{ e.preventDefault(); const r=stage.getBoundingClientRect(); cropZoomTo(C.zoom*(e.deltaY<0?1.1:1/1.1), e.clientX-r.left, e.clientY-r.top); },{passive:false});
+  $('cropZoom').addEventListener('input',e=>cropZoomTo(Number(e.target.value)));
+  $('cropCancel').onclick=()=>$('cropper').close();
+  $('cropSave').onclick=async()=>{
+    const s=stageSize(), sc=C.base*C.zoom, out=512;
+    const cv=document.createElement('canvas'); cv.width=cv.height=out;
+    cv.getContext('2d').drawImage($('cropImg'), -C.x/sc, -C.y/sc, s/sc, s/sc, 0, 0, out, out);
+    const blob=await new Promise(r=>cv.toBlob(r,'image/jpeg',.88));
+    $('cropper').close();
+    if(!blob){ toast('Couldn’t read that photo. Try another one.'); return; }
+    // show it immediately, upload in the background
+    const prevLocal=S.localAvatar; S.localAvatar=URL.createObjectURL(blob); S.avatarBusy=true; render();
+    const old=person(S.me).avatar;
+    try{
+      const path=`${S.me}/avatar-${(crypto.randomUUID?crypto.randomUUID():Date.now())}.jpg`;
+      const up=await S.db.storage.from('proofs').upload(path, blob, {contentType:'image/jpeg'});
+      if(up.error) throw new Error('Upload failed: '+up.error.message);
+      try{ await api.updatePlayer(S.me,{avatar:path}); }
+      catch(x){ S.db.storage.from('proofs').remove([path]); throw /avatar/i.test(x?.message||'') ? new Error('The database needs the profile-photo update. Run the avatar SQL in Supabase.') : x; }
+      if(old) api.removePhoto(old).catch(()=>{});
+      await api.loadAll();
+      toast('Profile photo updated');
+    }catch(x){ console.warn(x); toast(x?.message||'Couldn’t save your photo.'); }
+    finally{ if(S.localAvatar && S.localAvatar!==prevLocal) URL.revokeObjectURL(S.localAvatar); S.localAvatar=null; S.avatarBusy=false; render(); }
+  };
 
   // ---- photo gallery ----
   const G={items:[],i:0};
@@ -462,8 +541,8 @@
 
   // ---- tabs & weeks ----
   function route(){
-    const h=(location.hash||'#today').slice(1), v=['today','week','activities'].includes(h)?h:'today';
-    for(const t of ['today','week','activities']){ $('pane-'+t).hidden=t!==v; $('tab-'+t).removeAttribute('aria-current'); if(t===v) $('tab-'+t).setAttribute('aria-current','page'); }
+    const h=(location.hash||'#today').slice(1), v=['today','week','activities','profile'].includes(h)?h:'today';
+    for(const t of ['today','week','activities','profile']){ $('pane-'+t).hidden=t!==v; $('tab-'+t).removeAttribute('aria-current'); if(t===v) $('tab-'+t).setAttribute('aria-current','page'); }
     scrollTo(0,0);
   }
   addEventListener('hashchange',route); route();
@@ -502,7 +581,10 @@
       }
     },
     createPlayer(v){ return api.q(S.db.from('players').insert(v)); },
-    updatePlayer(id,v){ return api.q(S.db.from('players').update(v).eq('id',id)); },
+    async updatePlayer(id,v){
+      const rows=await api.q(S.db.from('players').update(v).eq('id',id).select('id'));
+      if(!rows || !rows.length) throw new Error('Your profile couldn’t be saved (no permission). Sign out and back in, then try again.');
+    },
     addActivity(v){ return api.q(S.db.from('activities').insert(v)).then(api.loadAll); },
     updateActivity(id,v){ return api.q(S.db.from('activities').update(v).eq('id',id)).then(api.loadAll); },
     deleteActivity(id){ return api.q(S.db.from('activities').delete().eq('id',id)).then(api.loadAll); },

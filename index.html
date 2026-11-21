@@ -16,7 +16,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=202611211208">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -26,6 +26,7 @@
   <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 20h8"/></symbol>
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6"/></symbol>
   <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
   <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
 </svg>
@@ -36,7 +37,7 @@
       <h1 id="hello">Proof Duel</h1>
       <p id="pep">Snap it, log it, win the week.</p>
     </div>
-    <button class="me-btn" id="meBtn" hidden aria-label="Edit your profile"></button>
+    <button class="me-btn" id="meBtn" hidden aria-label="Open your profile"></button>
   </header>
 
   <div id="notice" hidden class="notice"></div>
@@ -84,12 +85,36 @@
       <button class="btn primary" type="submit">Add</button>
     </form>
   </section>
+
+  <!-- PROFILE -->
+  <section id="pane-profile" hidden style="display:flex;flex-direction:column;gap:18px">
+    <div class="card prof-head">
+      <button class="avatar-edit" id="avatarEdit" type="button" aria-label="Change profile photo">
+        <span class="av xl" id="profAv"></span>
+        <span class="cam-badge" aria-hidden="true"><svg class="icon"><use href="#i-cam"/></svg></span>
+      </button>
+      <h2 id="profName" style="font-size:1.35rem"></h2>
+      <div class="prof-actions">
+        <button class="btn" type="button" id="avChoose">Change photo</button>
+        <button class="btn link" type="button" id="avRemove" hidden>Remove photo</button>
+      </div>
+    </div>
+    <div class="prof-stats" id="profStats"></div>
+    <div class="card prof-sec">
+      <div><h2>Sticker</h2><p class="muted" style="margin:2px 0 0;font-size:.85rem">Shown when you have no photo.</p></div>
+      <div class="picks" id="profEmoji"></div>
+      <h2>Color</h2>
+      <div class="picks" id="profColor"></div>
+    </div>
+    <button class="btn" type="button" id="profSignOut" style="padding:12px">Sign out</button>
+  </section>
 </div>
 
 <div class="tabbar"><nav>
   <a href="#today" id="tab-today"><svg class="icon lg"><use href="#i-home"/></svg>Today</a>
   <a href="#week" id="tab-week"><svg class="icon lg"><use href="#i-trophy"/></svg>Ranking</a>
   <a href="#activities" id="tab-activities"><svg class="icon lg"><use href="#i-list"/></svg>Activities</a>
+  <a href="#profile" id="tab-profile"><svg class="icon lg"><use href="#i-user"/></svg>Profile</a>
 </nav></div>
 
 <input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
@@ -105,13 +130,6 @@
       <span class="lbl">Password</span>
       <input class="field" id="joinPw" type="password" minlength="8" maxlength="72" placeholder="At least 8 characters" autocomplete="new-password">
     </div>
-    <div id="photoWrap" hidden style="display:flex;flex-direction:column;gap:16px">
-      <span class="lbl">Profile picture</span>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" type="button" id="photoPick">Choose picture</button>
-        <button class="btn link" type="button" id="photoRemove" hidden>Remove picture</button>
-      </div>
-    </div>
     <div id="looksWrap" style="display:flex;flex-direction:column;gap:16px">
       <span class="lbl">Sticker <span style="font-weight:500">(shown if you have no picture)</span></span>
       <div class="picks" id="emojiPicks"></div>
@@ -125,6 +143,14 @@
     <button class="btn link" type="button" id="signOut" hidden>Sign out</button>
   </form>
 </dialog>
+<dialog id="cropper" aria-labelledby="cropTitle">
+  <div class="crop-wrap">
+    <h2 id="cropTitle">Move and zoom</h2>
+    <div class="crop-stage" id="cropStage"><img id="cropImg" alt="" draggable="false"><div class="crop-mask"></div></div>
+    <input type="range" id="cropZoom" min="1" max="4" step="0.01" value="1" aria-label="Zoom">
+    <div class="crop-btns"><button class="btn" type="button" id="cropCancel">Cancel</button><button class="btn primary" type="button" id="cropSave">Save photo</button></div>
+  </div>
+</dialog>
 <dialog id="lightbox"><img id="lbImg" alt="">
   <div class="nav"><button class="nav-btn" id="lbPrev" aria-label="Previous photo"><svg class="icon"><use href="#i-left"/></svg></button><span id="lbCap"></span><button class="nav-btn" id="lbNext" aria-label="Next photo"><svg class="icon"><use href="#i-right"/></svg></button></div>
   <div class="cap"><button class="btn link" id="lbDel" hidden>Delete photo</button><button class="btn" id="lbClose">Close</button></div>
@@ -132,7 +158,7 @@
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.52.1/dist/umd/supabase.js"></script>
-<script src="config.js"></script>
-<script src="app.js"></script>
+<script src="config.js?v=202611211208"></script>
+<script src="app.js?v=202611211208"></script>
 </body>
 </html>

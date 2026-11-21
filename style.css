@@ -191,3 +191,28 @@ dialog .cap{padding:12px 16px;display:flex;justify-content:space-between;gap:10p
 
 .av{overflow:hidden}
 .av.has-img img{width:100%;height:100%;object-fit:cover;display:block}
+
+/* profile */
+.prof-head{padding:24px 18px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
+.avatar-edit{position:relative;border:0;background:none;padding:0;border-radius:50%}
+.av.xl{width:112px;height:112px;font-size:3.2rem}
+.cam-badge{position:absolute;right:2px;bottom:2px;width:34px;height:34px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;border:3px solid var(--surface)}
+.cam-badge .icon{width:16px;height:16px}
+.av.uploading::after{content:"";position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.35)}
+.av{position:relative}
+.prof-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:center}
+.prof-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.prof-stats .card{padding:12px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.prof-stats b{font-size:1.3rem;font-weight:800;font-variant-numeric:tabular-nums}
+.prof-stats span{font-size:.75rem;color:var(--muted);font-weight:600}
+.prof-sec{padding:16px;display:flex;flex-direction:column;gap:12px}
+/* cropper */
+#cropper{width:min(94vw,380px)}
+.crop-wrap{padding:20px;display:flex;flex-direction:column;gap:16px}
+.crop-stage{position:relative;width:100%;aspect-ratio:1;max-width:100%;overflow:hidden;border-radius:16px;background:#000;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+.crop-stage:active{cursor:grabbing}
+.crop-stage img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;pointer-events:none}
+.crop-mask{position:absolute;inset:0;border-radius:50%;box-shadow:0 0 0 999px rgba(0,0,0,.5);pointer-events:none}
+#cropZoom{width:100%;accent-color:var(--accent)}
+.crop-btns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tabbar a{padding:4px 10px}
